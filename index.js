@@ -196,8 +196,18 @@ app.get('/health', (req, res) => {
 
 app.get('/ping', (req, res) => res.send('pong'));
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Server] HTTP server started on port ${PORT}`);
+// FIX: handle port conflict gracefully - try next port if taken
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[Server] HTTP server started on port ${server.address().port}`);
+});
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    const fallbackPort = PORT + 1;
+    console.log(`[Server] Port ${PORT} in use - trying port ${fallbackPort}`);
+    server.listen(fallbackPort, '0.0.0.0');
+  } else {
+    console.log(`[Server] HTTP server error: ${err.message}`);
+  }
 });
 
 // FIX: only one definition of formatUptime
@@ -304,13 +314,16 @@ function createBot() {
   console.log(`[Bot] Connecting to ${config.server.ip}:${config.server.port}`);
 
   try {
+    // FIX: use version:false to auto-detect server version so the bot can join any server.
+    // If the user explicitly sets a version in settings.json it is still respected.
+    const botVersion = config.server.version && config.server.version.trim() !== '' ? config.server.version : false;
     bot = mineflayer.createBot({
       username: config['bot-account'].username,
       password: config['bot-account'].password || undefined,
       auth: config['bot-account'].type,
       host: config.server.ip,
       port: config.server.port,
-      version: config.server.version,
+      version: botVersion,
       hideErrors: false,
       checkTimeoutInterval: 300000
     });
@@ -348,7 +361,8 @@ function createBot() {
         sendDiscordWebhook(`[+] **Connected** to \`${config.server.ip}\``, 0x4ade80);
       }
 
-      const mcData = require('minecraft-data')(config.server.version);
+      // FIX: use bot.version (auto-detected) instead of config value so minecraft-data always matches
+      const mcData = require('minecraft-data')(bot.version);
       const defaultMove = new Movements(bot, mcData);
       defaultMove.allowFreeMotion = false;
       defaultMove.canDig = false;
